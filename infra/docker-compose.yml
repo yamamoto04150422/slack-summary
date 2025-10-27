@@ -1,0 +1,68 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: slack-summary-postgres
+    environment:
+      POSTGRES_DB: slack_summary
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  summary-api:
+    build:
+      context: ../summary-api
+      dockerfile: Dockerfile
+    container_name: slack-summary-api
+    environment:
+      PORT: 8000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: slack_summary
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      OLLAMA_URL: ${OLLAMA_URL:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../summary-api:/app
+      - /app/node_modules
+    restart: unless-stopped
+
+  slack-bot:
+    build:
+      context: ../slack-bot
+      dockerfile: Dockerfile
+    container_name: slack-summary-bot
+    environment:
+      PORT: 3000
+      SLACK_BOT_TOKEN: ${SLACK_BOT_TOKEN}
+      SLACK_SIGNING_SECRET: ${SLACK_SIGNING_SECRET}
+      SLACK_APP_TOKEN: ${SLACK_APP_TOKEN}
+      SUMMARY_API_URL: http://summary-api:8000
+    ports:
+      - "3000:3000"
+    depends_on:
+      summary-api:
+        condition: service_started
+    volumes:
+      - ../slack-bot:/app
+      - /app/node_modules
+    restart: unless-stopped
+
+volumes:
+  postgres_data:

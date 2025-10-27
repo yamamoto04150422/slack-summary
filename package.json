@@ -1,0 +1,8 @@
+{
+  "name": "slack-summary",
+  "version": "1.0.0",
+  "description": "Slack チャンネルの会話を要約するBot",
+  "private": true,
+  "author": "",
+  "license": "MIT"
+}
