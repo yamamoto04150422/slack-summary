@@ -22,8 +22,9 @@ const pool = new Pool({
 // Ollama configuration
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3";
-const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 120000); // 2分に延長
-const MAX_INPUT_CHARS = Number(process.env.MAX_INPUT_CHARS || 4000); // 4000文字に制限
+const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 300000); // 5分に延長
+const MAX_INPUT_CHARS = Number(process.env.MAX_INPUT_CHARS || 2000); // 2000文字に制限
+const USE_SIMPLE_SUMMARY = process.env.USE_SIMPLE_SUMMARY === "true"; // 簡単要約を強制
 
 // Test endpoint
 app.get("/health", (req, res) => {
@@ -42,20 +43,40 @@ app.post("/summary", async (req, res) => {
     // Clip overly long input to avoid heavy load
     const clippedText = String(text).slice(0, MAX_INPUT_CHARS);
 
-    // Generate summary using Ollama (簡潔なプロンプトで高速化)
-    const prompt = `要約: ${clippedText}`;
+    // 要約生成
+    let summary;
 
-    const response = await axios.post(
-      `${OLLAMA_URL}/api/generate`,
-      {
-        model: OLLAMA_MODEL,
-        prompt: prompt,
-        stream: false,
-      },
-      { timeout: REQUEST_TIMEOUT_MS }
-    );
+    // 簡単要約を強制的に使う
+    const textLength = clippedText.length;
+    const messageCount = (clippedText.match(/\n/g) || []).length + 1;
+    summary = `📊 チャンネル要約\n\n・メッセージ数: ${messageCount}件\n・文字数: ${textLength}文字\n\n⚠️ LLM要約は現在無効化されています。簡易要約のみ表示されます。`;
 
-    const summary = response.data.response;
+    // Ollamaを使った詳細要約（オプション、コメントアウト）
+    /*
+    try {
+      const prompt = `以下のメッセージを簡潔に要約してください。\n\n${clippedText}`;
+      
+      const response = await axios.post(
+        `${OLLAMA_URL}/api/generate`,
+        {
+          model: OLLAMA_MODEL,
+          prompt: prompt,
+          stream: false,
+          options: {
+            temperature: 0.7,
+            top_p: 0.9,
+          }
+        },
+        { timeout: REQUEST_TIMEOUT_MS }
+      );
+
+      summary = response.data.response;
+      console.log("Ollama summary generated successfully");
+    } catch (ollamaError) {
+      console.log("Ollama error, using simple summary:", ollamaError.message);
+      // エラー時は上記の簡易要約を使用
+    }
+    */
 
     // Save to database
     try {
