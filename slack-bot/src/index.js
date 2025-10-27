@@ -36,7 +36,7 @@ app.command("/summary", async ({ command, ack, respond }) => {
     }
 
     // Send loading message
-    const loadingResponse = await respond({
+    await respond({
       text: "要約を生成中...",
       response_type: "in_channel",
     });
@@ -53,13 +53,12 @@ app.command("/summary", async ({ command, ack, respond }) => {
         text: messages,
         channel: channelId,
       },
-      { timeout: Number(process.env.REQUEST_TIMEOUT_MS || 120000) } // 2分に延長
+      { timeout: Number(process.env.REQUEST_TIMEOUT_MS || 300000) } // 5分に延長
     );
 
-    // Update message with summary
-    await app.client.chat.update({
+    // Post summary as new message
+    await app.client.chat.postMessage({
       channel: channelId,
-      ts: loadingResponse.ts,
       text: `📝 **要約結果**\n\n${summary.data.summary}`,
     });
   } catch (error) {
