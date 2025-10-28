@@ -131,7 +131,6 @@ ${partialSummaries.join("\n---\n")}
 ━━━━━━━━━━━━━━━
 ${summary}
 ━━━━━━━━━━━━━━━
-_${new Date().toLocaleString()} に生成_
 `;
 
     // --- DB保存 ---

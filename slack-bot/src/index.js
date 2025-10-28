@@ -18,13 +18,12 @@ app.command("/summary", async ({ command, ack, respond }) => {
   await ack();
 
   const channelId = command.channel_id;
-  const userId = command.user_id;
 
   try {
-    // Get channel history (最新10件のみ)
+    // チャンネル履歴を取得（最新100件）
     const result = await app.client.conversations.history({
       channel: channelId,
-      limit: 10,
+      limit: 100,
     });
 
     if (!result.messages || result.messages.length === 0) {
@@ -35,19 +34,30 @@ app.command("/summary", async ({ command, ack, respond }) => {
       return;
     }
 
-    // Send loading message
+    // botメッセージを除外し、古い順に整列
+    const userMessages = result.messages
+      .filter((msg) => msg.subtype !== "bot_message")
+      .map((msg) => msg.text)
+      .reverse();
+
+    if (userMessages.length === 0) {
+      await respond({
+        text: "ユーザーからのメッセージが見つかりませんでした（bot投稿を除外済み）。",
+        response_type: "ephemeral",
+      });
+      return;
+    }
+
+    // 処理中メッセージ
     await respond({
-      text: "要約を生成中...",
+      text: "🧠 要約を生成中です。少々お待ちください…",
       response_type: "in_channel",
     });
 
-    // Call summary API
-    const messages = result.messages
-      .filter((msg) => msg.subtype !== "bot_message")
-      .map((msg) => msg.text)
-      .join("\n");
+    // summary-api へ要約リクエスト
+    const messages = userMessages.join("\n");
 
-    const summary = await axios.post(
+    const summaryResponse = await axios.post(
       `${SUMMARY_API_URL}/summary`,
       {
         text: messages,
@@ -56,18 +66,32 @@ app.command("/summary", async ({ command, ack, respond }) => {
       { timeout: Number(process.env.REQUEST_TIMEOUT_MS || 180000) } // 3分
     );
 
-    // Post summary as new message
+    const summary = summaryResponse.data.summary || "(要約結果なし)";
+
+    // 現在時刻（日本時間）
+    const now = new Date().toLocaleString("ja-JP", {
+      timeZone: "Asia/Tokyo",
+      hour12: false,
+    });
+
+    // Slack出力用に整形（summary-apiの結果を活かしてシンプルに）
+    const message = `
+${summary}
+━━━━━━━━━━━━━━━
+🕒 ${now} に生成
+`;
+
+    // 結果をSlackへ投稿
     await app.client.chat.postMessage({
       channel: channelId,
-      text: `📝 **要約結果**\n\n${summary.data.summary}`,
+      text: message,
     });
   } catch (error) {
-    console.error("Error:", error);
+    console.error("❌ Error:", error);
 
-    // Handle specific errors
     if (error.data && error.data.error === "not_in_channel") {
       await respond({
-        text: "❌ エラー: Botがこのチャンネルに参加していません。\n\nチャンネルにBotを招待する方法:\n1. チャンネルで `/invite @slack-summary` と入力\n2. または、チャンネル設定からメンバーを追加して Bot を招待",
+        text: "❌ エラー: Botがこのチャンネルに参加していません。\n\nチャンネルで `/invite @slack-summary` と入力して招待してください。",
         response_type: "ephemeral",
       });
       return;
@@ -78,7 +102,7 @@ app.command("/summary", async ({ command, ack, respond }) => {
     await respond({
       text: isTimeout
         ? "⏱ 要約処理がタイムアウトしました。メッセージ量を減らすか、後でもう一度お試しください。"
-        : `エラーが発生しました: ${error.message}`,
+        : `⚠️ エラーが発生しました: ${error.message}`,
       response_type: "ephemeral",
     });
   }
