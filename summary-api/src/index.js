@@ -22,8 +22,8 @@ const pool = new Pool({
 // Ollama configuration
 const OLLAMA_URL = process.env.OLLAMA_URL || "http://localhost:11434";
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "llama3";
-const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 300000); // 5分に延長
-const MAX_INPUT_CHARS = Number(process.env.MAX_INPUT_CHARS || 2000); // 2000文字に制限
+const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 180000); // 3分
+const MAX_INPUT_CHARS = Number(process.env.MAX_INPUT_CHARS || 1000); // 1000文字に制限
 const USE_SIMPLE_SUMMARY = process.env.USE_SIMPLE_SUMMARY === "true"; // 簡単要約を強制
 
 // Test endpoint
@@ -46,37 +46,23 @@ app.post("/summary", async (req, res) => {
     // 要約生成
     let summary;
 
-    // 簡単要約を強制的に使う
+    // 簡易要約を生成（LLMを使わない）
     const textLength = clippedText.length;
     const messageCount = (clippedText.match(/\n/g) || []).length + 1;
-    summary = `📊 チャンネル要約\n\n・メッセージ数: ${messageCount}件\n・文字数: ${textLength}文字\n\n⚠️ LLM要約は現在無効化されています。簡易要約のみ表示されます。`;
 
-    // Ollamaを使った詳細要約（オプション、コメントアウト）
-    /*
-    try {
-      const prompt = `以下のメッセージを簡潔に要約してください。\n\n${clippedText}`;
-      
-      const response = await axios.post(
-        `${OLLAMA_URL}/api/generate`,
-        {
-          model: OLLAMA_MODEL,
-          prompt: prompt,
-          stream: false,
-          options: {
-            temperature: 0.7,
-            top_p: 0.9,
-          }
-        },
-        { timeout: REQUEST_TIMEOUT_MS }
-      );
+    // メッセージの最初の3行を抽出
+    const lines = clippedText.split("\n").filter((line) => line.trim());
+    const preview = lines.slice(0, 3).join("\n");
 
-      summary = response.data.response;
-      console.log("Ollama summary generated successfully");
-    } catch (ollamaError) {
-      console.log("Ollama error, using simple summary:", ollamaError.message);
-      // エラー時は上記の簡易要約を使用
-    }
-    */
+    summary =
+      `📊 チャンネル要約 (最新${messageCount}件)\n\n` +
+      `文字数: ${textLength}文字\n\n` +
+      `最初のメッセージ:\n${preview}\n\n` +
+      `💡 現在は簡易要約モードです。`;
+
+    console.log(
+      `Simple summary generated (${messageCount} messages, ${textLength} chars)`
+    );
 
     // Save to database
     try {
