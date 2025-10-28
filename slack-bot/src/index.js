@@ -21,10 +21,10 @@ app.command("/summary", async ({ command, ack, respond }) => {
   const userId = command.user_id;
 
   try {
-    // Get channel history
+    // Get channel history (最新10件のみ)
     const result = await app.client.conversations.history({
       channel: channelId,
-      limit: 100,
+      limit: 10,
     });
 
     if (!result.messages || result.messages.length === 0) {
@@ -53,7 +53,7 @@ app.command("/summary", async ({ command, ack, respond }) => {
         text: messages,
         channel: channelId,
       },
-      { timeout: Number(process.env.REQUEST_TIMEOUT_MS || 300000) } // 5分に延長
+      { timeout: Number(process.env.REQUEST_TIMEOUT_MS || 180000) } // 3分
     );
 
     // Post summary as new message
