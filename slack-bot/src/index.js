@@ -20,6 +20,10 @@ app.command("/summary", async ({ command, ack, respond }) => {
   const channelId = command.channel_id;
 
   try {
+    // bot自身のuser IDを取得
+    const authResult = await app.client.auth.test();
+    const botUserId = authResult.user_id;
+
     // チャンネル履歴を取得（最新100件）
     const result = await app.client.conversations.history({
       channel: channelId,
@@ -34,10 +38,96 @@ app.command("/summary", async ({ command, ack, respond }) => {
       return;
     }
 
-    // botメッセージを除外し、古い順に整列
+    // 最新の要約メッセージを探す（リスト内の最初の要約メッセージ）
+    let latestSummaryMessage = null;
+    let latestSummaryIndex = -1;
+
+    for (let i = 0; i < result.messages.length; i++) {
+      const msg = result.messages[i];
+      if (
+        msg.user === botUserId &&
+        msg.text &&
+        msg.ts &&
+        (msg.text.includes(":mega: *チャンネル要約*") ||
+          msg.text.includes("チャンネル要約"))
+      ) {
+        latestSummaryMessage = msg;
+        latestSummaryIndex = i;
+        break;
+      }
+    }
+
+    // 最新の要約メッセージが見つかった場合、その後に新しいユーザーメッセージがあるかチェック
+    if (latestSummaryMessage && latestSummaryIndex >= 0 && latestSummaryMessage.ts) {
+      const summaryTimestamp = parseFloat(latestSummaryMessage.ts);
+      
+      // summaryTimestampがNaNでないことを確認
+      if (isNaN(summaryTimestamp)) {
+        console.warn("⚠️ 要約メッセージのタイムスタンプが無効です:", latestSummaryMessage.ts);
+      } else {
+        // 要約メッセージが最新（index 0）の場合は、新しいメッセージはない
+        if (latestSummaryIndex === 0) {
+          await respond({
+            text: "ℹ️ 前回の要約以降、新しいメッセージが追加されていないため、要約をスキップします。",
+            response_type: "ephemeral",
+          });
+          return;
+        }
+
+        // 要約メッセージより前に（新しい）ユーザーメッセージがあるかチェック
+        // Slack APIは降順（新しい順）で返すため、index 0～latestSummaryIndex-1 が要約より新しいメッセージ
+        const hasNewMessages = result.messages
+          .slice(0, latestSummaryIndex) // 要約メッセージより前の（新しい）メッセージをチェック
+          .some((msg) => {
+            // bot自身のメッセージ、bot_message、処理中メッセージを除外
+            if (msg.user === botUserId) return false;
+            if (msg.subtype === "bot_message") return false;
+            if (msg.bot_id) return false;
+            if (
+              msg.text &&
+              (msg.text.includes(":mega: *チャンネル要約*") ||
+                msg.text.includes("🧠 要約を生成中です"))
+            ) {
+              return false;
+            }
+            // 要約メッセージより新しいメッセージかどうか（tsの存在もチェック）
+            if (!msg.ts) return false;
+            const msgTimestamp = parseFloat(msg.ts);
+            return !isNaN(msgTimestamp) && msgTimestamp > summaryTimestamp;
+          });
+
+        // 新しいメッセージがない場合はスキップ
+        if (!hasNewMessages) {
+          await respond({
+            text: "ℹ️ 前回の要約以降、新しいメッセージが追加されていないため、要約をスキップします。",
+            response_type: "ephemeral",
+          });
+          return;
+        }
+      }
+    }
+
+    // botメッセージとslack-summaryのbot自身のメッセージを除外し、古い順に整列
     const userMessages = result.messages
-      .filter((msg) => msg.subtype !== "bot_message")
+      .filter((msg) => {
+        // bot_messageサブタイプを除外
+        if (msg.subtype === "bot_message") return false;
+        // bot自身のuser IDと一致するメッセージを除外
+        if (msg.user === botUserId) return false;
+        // bot_idが存在するメッセージを除外（他のbotも）
+        if (msg.bot_id) return false;
+        // 要約メッセージのパターンを含むメッセージを除外（念のため）
+        if (
+          msg.text &&
+          (msg.text.includes(":mega: *チャンネル要約*") ||
+            msg.text.includes("🧠 要約を生成中です"))
+        ) {
+          return false;
+        }
+        return true;
+      })
       .map((msg) => msg.text)
+      .filter((text) => text) // 空のテキストを除外
       .reverse();
 
     if (userMessages.length === 0) {
